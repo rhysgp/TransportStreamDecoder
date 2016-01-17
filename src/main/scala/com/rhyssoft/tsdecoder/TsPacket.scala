@@ -19,16 +19,10 @@ object Utils {
 
   case class Shiftable(i: Int) {
     def shl(n: Int) = i << n
-
     def or(s: Shiftable) = i | s.i
   }
 
-  implicit def b2Shiftable(b: Byte): Shiftable =
-    if (b < 0)
-      Shiftable(256 + b)
-    else
-      Shiftable(b)
-
+  implicit def b2Shiftable(b: Byte): Shiftable = Shiftable(if (b < 0) 256 + b else b)
   implicit def i2shiftable(i: Int): Shiftable = Shiftable(i)
 }
 
