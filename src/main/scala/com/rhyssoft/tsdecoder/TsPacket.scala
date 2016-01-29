@@ -2,7 +2,7 @@ package com.rhyssoft.tsdecoder
 
 import java.io.InputStream
 import Utils._
-import ScramblingControl._
+import com.rhyssoft.tsdecoder.ScramblingControl.ScramblingControl
 
 case class TsPacket(
    syncByte: Int,
@@ -17,6 +17,7 @@ case class TsPacket(
 )
 
 object TsPacket {
+
   def read(inputStream: InputStream): TsPacket = {
     val streamHeader = fourBytesToInt(fillArray(inputStream, Array.ofDim[Byte](4)))
 
@@ -43,12 +44,47 @@ object TsPacket {
       val opcrFlag = (data(1) & 0x08) == 0x08
       val splicingPointFlag = (data(1) & 0x04) == 0x04
       val transportPrivateDataFlog = (data(1) & 0x02) == 0x02
-      val adaptationFieldExtensionFlog = (data(1) & 0x01) == 0x01
+      val adaptationFieldExtensionFlag = (data(1) & 0x01) == 0x01
 
+      val pcrData = if (pcrFlag) { Option(fillArray(inputStream, Array.ofDim[Byte](6))) } else None
+      val opcrData = if (opcrFlag) { Option(fillArray(inputStream, Array.ofDim[Byte](6))) } else None
+      val spliceCoutdown = if (splicingPointFlag) Option(inputStream.read()) else None
+      val privateDataLength = if (transportPrivateDataFlog) inputStream.read() else 0
+      val privateData = fillArray(inputStream, Array.ofDim[Byte](privateDataLength))
 
+      if (adaptationFieldExtensionFlag) {
+        val extensionLength = inputStream.read()
+        val data = fillArray(inputStream, Array.ofDim[Byte](extensionLength), 1)
+        data.update(0, extensionLength.asInstanceOf[Byte])
+        val legalTimeWindow = (data(1) & 0x80) == 0x80
+        val piecewiseRateFlag = (data(1) & 0x40) == 0x40
+        val seamlessSpliceFlag = (data(1) & 0x20) == 0x20
+        val reserved = data(1) & 0x1f
+        var offset = 2
+
+        val ltwFlagSet = if (legalTimeWindow) {
+          val ltw = twoBytesToInt(data.slice(offset, offset + 2))
+          offset = offset + 2
+          Option(
+            (ltw & 0x8000) == 0x8000,
+            ltw & 0x7fff
+          )
+        } else None
+
+        val piecewiseFlagSet = if (piecewiseRateFlag) {
+          val piecewise = threeBytesToInt(data.slice(offset, offset + 3))
+          offset = offset + 3
+          Option(piecewise & 0x3fffff)
+        } else None
+
+        val seamlessSpliceFlagSet = if (seamlessSpliceFlag) {
+          val seamlessSplice = fiveBytesToLong(data.slice(offset, offset + 5))
+          Option(((seamlessSplice & 0xf000000000l) >> 36).toByte, seamlessSplice & 0x0efffefffel)
+        } else None
+      }
     }
 
-
+    TsPacket(0, true, true, true, 0, ScramblingControl.scrambledOdd, true, true, true)
   }
 }
 
@@ -64,8 +100,8 @@ case class AdaptationFieldHeader(data: Int) {
   def adaptationFieldExtensionFlog = (data & 0x01) == 0x01
 }
 
-case class AdaptationFieldsOptionalSubFields(hdr: AdaptationFieldHeader, optionalData: Byte[Array]) {
-  val pcrData =
+case class AdaptationFieldsOptionalSubFields(hdr: AdaptationFieldHeader, optionalData: Array[Byte]) {
+//  val pcrData =
 }
 
 object AdaptationFieldsOptionalSubFields {
@@ -146,8 +182,9 @@ object Utils {
     array
   }
 
-  def fourBytesToInt(bytes: Array[Byte]): Int = (bytes(0) shl 24) or (bytes(1) shl 16) or (bytes(2) shl 8) or bytes(3)
   def twoBytesToInt(bytes: Array[Byte]): Int = (bytes(0) shl 8) or bytes(1)
+  def threeBytesToInt(bytes: Array[Byte]): Int = (bytes(0) shl 16) or (bytes(1) shl 8) or bytes(0)
+  def fourBytesToInt(bytes: Array[Byte]): Int = (bytes(0) shl 24) or (bytes(1) shl 16) or (bytes(2) shl 8) or bytes(3)
   def fiveBytesToLong(bytes: Array[Byte]): Int = (bytes(0) shl 32) or (bytes(1) shl 24) or (bytes(2) shl 16) or (bytes(3) shl 8) or bytes(4)
 
   case class Shiftable(i: Int) {
