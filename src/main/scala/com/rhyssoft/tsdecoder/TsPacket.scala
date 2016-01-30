@@ -125,6 +125,8 @@ object TsPacket {
           val seamlessSplice = fiveBytesToLong(data.slice(offset, offset + 5))
           Option(((seamlessSplice & 0xf000000000l) >> 36).toByte, seamlessSplice & 0x0efffefffel)
         } else None
+
+        packetBytesRead = packetBytesRead + extensionLength + 1
       }
 
       val stuffingBytes = fillArray(inputStream, Array.ofDim[Byte](length - bytesRead))
@@ -259,8 +261,11 @@ object Utils {
   def fillArray(inputStream: InputStream, array: Array[Byte], initialCount: Int = 0): Array[Byte] = {
     var count = initialCount
     val len = array.length
-    while (count < len) {
-      count = count + inputStream.read(array, count, len - count)
+    var eof = false
+    while (!eof && count < len) {
+      val bytesRead = inputStream.read(array, count, len - count)
+      eof = bytesRead == -1
+      count = count + bytesRead
     }
     array
   }
