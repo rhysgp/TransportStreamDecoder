@@ -13,13 +13,42 @@ case class TsPacket(
    scramblingControl: ScramblingControl,
    adaptationFieldFlag: Boolean,
    payloadFlag: Boolean,
-   continuityCounter: Boolean
+   continuityCounter: Int,
+   adaptationField: Option[AdaptationField],
+   payload: Array[Byte]
+)
+
+case class AdaptationField(
+  length: Int,
+  discontinuityIndicator: Boolean,
+  randomAccessIndicator: Boolean,
+  elementaryStreamPriority: Boolean,
+  pcrFlag: Boolean,
+  opcrFlag: Boolean,
+  splicingPointFlag: Boolean,
+  transportPrivateDataFlag: Boolean,
+  adaptationFieldExensionFlag: Boolean,
+  pcr: Option[Array[Byte]],
+  opcr: Option[Array[Byte]],
+  spliceCountdown: Option[Byte],
+  transportPrivateDataLength: Int,
+  transportPrivateData: Option[Array[Byte]],
+  adaptationExtension: Option[AdaptationExtensionField], // ???
+  stuffingBytes: Array[Byte]
 )
 
 object TsPacket {
 
   def read(inputStream: InputStream): TsPacket = {
-    val streamHeader = fourBytesToInt(fillArray(inputStream, Array.ofDim[Byte](4)))
+
+    var packetBytesRead = 0
+
+    // ignore the first four bytes
+    fillArray(inputStream, Array.ofDim[Byte](4))
+
+    val arr = fillArray(inputStream, Array.ofDim[Byte](4))
+    packetBytesRead = packetBytesRead + 4
+    val streamHeader = fourBytesToInt(arr)
 
     val syncByte = (streamHeader & 0xff000000) >> 24
     val errorIndicator = (streamHeader & 0x800000) == 0x800000
@@ -29,38 +58,53 @@ object TsPacket {
     val scramblingControl: ScramblingControl = (streamHeader & 0xc0) >> 3
     val adaptationFieldFlag = (streamHeader & 0x20) == 0x20
     val payloadFlag = (streamHeader & 0x10) == 0x10
-    val continuityCounter = (streamHeader & 0x0f) == 0x0f
+    val continuityCounter = streamHeader & 0x0f
 
-    if (adaptationFieldFlag) {
+    val adaptationField = if (adaptationFieldFlag) {
       // read adaptation fields...
       val length = inputStream.read()
-      val data = fillArray(inputStream, Array.ofDim[Byte](length), 1)
-      data.update(0, length.asInstanceOf[Byte])
+      var bytesRead = 0
+      val flags = inputStream.read()
 
-      val discontinuityIndicator = (data(1) & 0x80) == 0x80
-      val randomAccessIndicator = (data(1) & 0x40) == 0x40
-      val elementaryStreamPriorityIndicator = (data(1) & 0x20) == 0x20
-      val pcrFlag = (data(1) & 0x10) == 0x10
-      val opcrFlag = (data(1) & 0x08) == 0x08
-      val splicingPointFlag = (data(1) & 0x04) == 0x04
-      val transportPrivateDataFlog = (data(1) & 0x02) == 0x02
-      val adaptationFieldExtensionFlag = (data(1) & 0x01) == 0x01
+      val discontinuityIndicator = (flags & 0x80) == 0x80
+      val randomAccessIndicator = (flags & 0x40) == 0x40
+      val elementaryStreamPriorityIndicator = (flags & 0x20) == 0x20
+      val pcrFlag = (flags & 0x10) == 0x10
+      val opcrFlag = (flags & 0x08) == 0x08
+      val splicingPointFlag = (flags & 0x04) == 0x04
+      val transportPrivateDataFlog = (flags & 0x02) == 0x02
+      val adaptationFieldExtensionFlag = (flags & 0x01) == 0x01
+      bytesRead = bytesRead + 1
 
-      val pcrData = if (pcrFlag) { Option(fillArray(inputStream, Array.ofDim[Byte](6))) } else None
-      val opcrData = if (opcrFlag) { Option(fillArray(inputStream, Array.ofDim[Byte](6))) } else None
-      val spliceCoutdown = if (splicingPointFlag) Option(inputStream.read()) else None
-      val privateDataLength = if (transportPrivateDataFlog) inputStream.read() else 0
-      val privateData = fillArray(inputStream, Array.ofDim[Byte](privateDataLength))
+      val pcrData = if (pcrFlag) {
+        bytesRead = bytesRead + 6
+        Option(fillArray(inputStream, Array.ofDim[Byte](6)))
+      } else None
+      val opcrData = if (opcrFlag) {
+        bytesRead = bytesRead + 6
+        Option(fillArray(inputStream, Array.ofDim[Byte](6)))
+      } else None
+      val spliceCountdown = if (splicingPointFlag) {
+        bytesRead = bytesRead + 1
+        Option(fillArray(inputStream, Array.ofDim[Byte](1))(0))
+      }  else None
+      val privateDataLength = if (transportPrivateDataFlog) {
+        bytesRead = bytesRead + 1
+        inputStream.read()
+      } else 0
+      val privateData = if (transportPrivateDataFlog) {
+        bytesRead = bytesRead + privateDataLength
+        Option(fillArray(inputStream, Array.ofDim[Byte](privateDataLength)))
+      } else None
 
       if (adaptationFieldExtensionFlag) {
         val extensionLength = inputStream.read()
-        val data = fillArray(inputStream, Array.ofDim[Byte](extensionLength), 1)
-        data.update(0, extensionLength.asInstanceOf[Byte])
-        val legalTimeWindow = (data(1) & 0x80) == 0x80
-        val piecewiseRateFlag = (data(1) & 0x40) == 0x40
-        val seamlessSpliceFlag = (data(1) & 0x20) == 0x20
-        val reserved = data(1) & 0x1f
-        var offset = 2
+        val data = fillArray(inputStream, Array.ofDim[Byte](extensionLength))
+        val legalTimeWindow = (data(0) & 0x80) == 0x80
+        val piecewiseRateFlag = (data(0) & 0x40) == 0x40
+        val seamlessSpliceFlag = (data(0) & 0x20) == 0x20
+        val reserved = data(0) & 0x1f
+        var offset = 1
 
         val ltwFlagSet = if (legalTimeWindow) {
           val ltw = twoBytesToInt(data.slice(offset, offset + 2))
@@ -82,9 +126,48 @@ object TsPacket {
           Option(((seamlessSplice & 0xf000000000l) >> 36).toByte, seamlessSplice & 0x0efffefffel)
         } else None
       }
-    }
 
-    TsPacket(0, true, true, true, 0, ScramblingControl.scrambledOdd, true, true, true)
+      val stuffingBytes = fillArray(inputStream, Array.ofDim[Byte](length - bytesRead))
+
+      packetBytesRead = packetBytesRead + length + 1
+
+      Option(AdaptationField(
+        length,
+        discontinuityIndicator,
+        randomAccessIndicator,
+        elementaryStreamPriorityIndicator,
+        pcrFlag,
+        opcrFlag,
+        splicingPointFlag,
+        transportPrivateDataFlog,
+        adaptationFieldExtensionFlag,
+        pcrData,
+        opcrData,
+        spliceCountdown,
+        privateDataLength,
+        privateData,
+        None,
+        stuffingBytes
+      ))
+    } else None
+
+    val payload = fillArray(inputStream, Array.ofDim[Byte](188 - packetBytesRead))
+
+    packetBytesRead = packetBytesRead + payload.length
+
+    TsPacket(
+      syncByte,
+      errorIndicator,
+      payloadUnitStartIndicator,
+      transportPriority,
+      packetIdentifier,
+      scramblingControl,
+      adaptationFieldFlag,
+      payloadFlag,
+      continuityCounter,
+      adaptationField,
+      payload
+    )
   }
 }
 
@@ -177,7 +260,7 @@ object Utils {
     var count = initialCount
     val len = array.length
     while (count < len) {
-      count = inputStream.read(array, count, len - count)
+      count = count + inputStream.read(array, count, len - count)
     }
     array
   }
