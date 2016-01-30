@@ -1,17 +1,25 @@
 package com.rhyssoft.tsdecoder
 
-import java.io.FileInputStream
+import java.io.{File, FileInputStream, FileWriter}
 
 import com.rhyssoft.io.IoUtils._
 
 object TsPacketApp extends App {
 
-  autoClose(new FileInputStream(args(0))){ stream =>
-    outputStreamInfo(TsPacket.read(stream))
-    outputStreamInfo(TsPacket.read(stream))
+  autoClose(new FileWriter(new File("output.log"))) { writer =>
+    autoClose(new FileInputStream(args(0))){ stream =>
+      while (true) {
+        writer.write(packetToString(TsPacket.read(stream)))
+      }
+    }
   }
 
-  def outputStreamInfo(tsPacket: TsPacket): Unit = {
+  def packetToString(tsPacket: TsPacket): String = {
+
+    val sb = new StringBuilder
+
+    def println(s: String = "") = sb.append(s).append("\n")
+
     println()
     println("-- transport packet header --")
     println("sync byte              : 0x%02x".format(tsPacket.syncByte))
@@ -43,7 +51,9 @@ object TsPacketApp extends App {
     }
     println("payload bytes (length) : %d".format(tsPacket.payload.length))
     println("-----------------------------------")
+    println()
 
+    sb.toString()
   }
 
   def outputLine(buf: Array[Byte], count: Int, minBuffSize: Int = 16): String = {
