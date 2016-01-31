@@ -1,8 +1,10 @@
 package com.rhyssoft.tsdecoder
 
-import java.io.InputStream
+import java.io.{EOFException, InputStream}
 import Utils._
 import com.rhyssoft.tsdecoder.ScramblingControl.ScramblingControl
+
+import scala.util.Try
 
 case class TsPacket(
    syncByte: Int,
@@ -39,7 +41,9 @@ case class AdaptationField(
 
 object TsPacket {
 
-  def read(inputStream: InputStream): TsPacket = {
+  def read(inputStream: InputStream): Try[TsPacket] = Try (readInternal(inputStream))
+
+  private def readInternal(inputStream: InputStream): TsPacket = {
 
     var packetBytesRead = 0
 
@@ -261,10 +265,9 @@ object Utils {
   def fillArray(inputStream: InputStream, array: Array[Byte], initialCount: Int = 0): Array[Byte] = {
     var count = initialCount
     val len = array.length
-    var eof = false
-    while (!eof && count < len) {
+    while (count < len) {
       val bytesRead = inputStream.read(array, count, len - count)
-      eof = bytesRead == -1
+      if (bytesRead == -1) throw new EOFException
       count = count + bytesRead
     }
     array

@@ -1,15 +1,41 @@
 package com.rhyssoft.tsdecoder
 
-import java.io.{File, FileInputStream, FileWriter}
+import java.io._
 
 import com.rhyssoft.io.IoUtils._
 
+import scala.util.{Failure, Success}
+
 object TsPacketApp extends App {
 
-  autoClose(new FileWriter(new File("output.log"))) { writer =>
-    autoClose(new FileInputStream(args(0))){ stream =>
-      while (true) {
-        writer.write(packetToString(TsPacket.read(stream)))
+  val inFile = args(0)
+  val outFile = args(1)
+  val desc = args.length > 2 && args(2) == "desc"
+
+  autoClose(new BufferedInputStream(new FileInputStream(inFile))) { inStream =>
+    if (desc) {
+      autoClose(new BufferedWriter(new FileWriter(outFile))) { writer =>
+        var done = false
+        while (!done) {
+          TsPacket.read(inStream) match {
+            case Success(packet) =>
+              writer.write(packetToString(packet))
+            case Failure(t: EOFException) =>
+              done = true
+          }
+        }
+      }
+    } else {
+      autoClose(new BufferedOutputStream(new FileOutputStream(outFile))) { outStream =>
+        var done = false
+        while (!done) {
+          TsPacket.read(inStream) match {
+            case Success(packet) =>
+              outStream.write(packet.payload)
+            case Failure(t: EOFException) =>
+              done = true
+          }
+        }
       }
     }
   }
