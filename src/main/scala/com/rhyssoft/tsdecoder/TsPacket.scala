@@ -12,6 +12,7 @@ case class TsPacket(
    payloadUnitStartIndicator: Boolean,
    transportPriority: Boolean,
    packetIdentifier: Int,
+   pidType: PidType.PidType,
    scramblingControl: ScramblingControl,
    adaptationFieldFlag: Boolean,
    payloadFlag: Boolean,
@@ -167,6 +168,7 @@ object TsPacket {
       payloadUnitStartIndicator,
       transportPriority,
       packetIdentifier,
+      PidType.fromPid(packetIdentifier),
       scramblingControl,
       adaptationFieldFlag,
       payloadFlag,
@@ -258,6 +260,36 @@ object ScramblingControl extends Enumeration {
     } else {
       notScrambled
     }
+}
+
+sealed trait PidType { def range: Range }
+object PidType extends Enumeration {
+  type PidType = Value
+  val unknown, pat, cat, tsdt, ipmpCif, reserved, dvbMetadata, pmt, digiCypher2, pmt2, nullPacket = Value
+
+  def fromPid(pid: Int) =
+    if (pid == 0)
+      pat
+    else if (pid == 1)
+      cat
+    else if (pid == 2)
+      tsdt
+    else if (pid == 3)
+      ipmpCif
+    else if (pid < 16)
+      reserved
+    else if (pid < 32)
+      dvbMetadata
+    else if (pid < 8187)
+      pmt
+    else if (pid == 8187)
+      digiCypher2
+    else if (pid < 8191)
+      pmt2
+    else if (pid == 8191)
+      nullPacket
+    else
+      unknown
 }
 
 object Utils {

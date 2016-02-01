@@ -8,32 +8,45 @@ import scala.util.{Failure, Success}
 
 object TsPacketApp extends App {
 
+  val startTime = System.currentTimeMillis()
   val inFile = args(0)
   val outFile = args(1)
   val desc = args.length > 2 && args(2) == "desc"
 
-  autoClose(new BufferedInputStream(new FileInputStream(inFile))) { inStream =>
-    if (desc) {
-      autoClose(new BufferedWriter(new FileWriter(outFile))) { writer =>
-        var done = false
-        while (!done) {
-          TsPacket.read(inStream) match {
-            case Success(packet) =>
-              writer.write(packetToString(packet))
-            case Failure(t: EOFException) =>
-              done = true
+  process()
+
+  val endTime = System.currentTimeMillis()
+
+  println(s"Processing took ${endTime - startTime} ms")
+
+  def process(): Unit = {
+    autoClose(new BufferedInputStream(new FileInputStream(inFile))) { inStream =>
+      if (desc) {
+        autoClose(new BufferedWriter(new FileWriter(outFile))) { writer =>
+          var done = false
+          while (!done) {
+            TsPacket.read(inStream) match {
+              case Success(packet) =>
+                writer.write(packetToString(packet))
+              case Failure(t: EOFException) =>
+                done = true
+              case Failure(t) =>
+                throw t
+            }
           }
         }
-      }
-    } else {
-      autoClose(new BufferedOutputStream(new FileOutputStream(outFile))) { outStream =>
-        var done = false
-        while (!done) {
-          TsPacket.read(inStream) match {
-            case Success(packet) =>
-              outStream.write(packet.payload)
-            case Failure(t: EOFException) =>
-              done = true
+      } else {
+        autoClose(new BufferedOutputStream(new FileOutputStream(outFile))) { outStream =>
+          var done = false
+          while (!done) {
+            TsPacket.read(inStream) match {
+              case Success(packet) =>
+                outStream.write(packet.payload)
+              case Failure(t: EOFException) =>
+                done = true
+              case Failure (t) =>
+                throw t
+            }
           }
         }
       }
@@ -53,6 +66,7 @@ object TsPacketApp extends App {
     println("payload unit start     : %b".format(tsPacket.payloadUnitStartIndicator))
     println("transport priority     : %b".format(tsPacket.payloadUnitStartIndicator))
     println("PID                    : %d".format(tsPacket.packetIdentifier))
+    println("PID Type               : %s".format(tsPacket.pidType.toString))
     println("scrambling control     : %s".format(tsPacket.scramblingControl.toString))
     println("adaptation fld flag    : %b".format(tsPacket.adaptationFieldFlag))
     println("payload fld flag       : %b".format(tsPacket.payloadFlag))
