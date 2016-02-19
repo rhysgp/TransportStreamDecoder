@@ -39,6 +39,8 @@ object TsPacketApp extends App {
         autoClose(new BufferedOutputStream(new FileOutputStream(outFile))) { outStream =>
           var done = false
           while (!done) {
+
+
             TsPacket.read(inStream) match {
               case Success(packet) =>
                 outStream.write(packet.payload)
